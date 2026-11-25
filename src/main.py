@@ -1,34 +1,26 @@
+
+from contextlib import closing
+
 import psycopg2
 
-conn = psycopg2.connect(
-    host="postgres",
-    database="devdb",
-    user="admin",
-    password="***REMOVED***",
-    port="5432"
-)
+from src.config import DB_SETTINGS
 
-cur = conn.cursor()
 
-cur.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(100),
-    email VARCHAR(255)
-)
-""")
+def initialize_database():
 
-cur.execute(
-    """
-    INSERT INTO users (name, email)
-    VALUES (%s, %s)
-    """,
-    ("Kevin", "kevin@example.com")
-)
+    with closing(psycopg2.connect(**DB_SETTINGS)) as conn:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        id SERIAL PRIMARY KEY,
+                        name VARCHAR(100),
+                        email VARCHAR(255)
+                    )
+                """)
 
-conn.commit()
+    print("Database initialized successfully!")
 
-print("✅ User inserted!")
 
-cur.close()
-conn.close()
+if __name__ == "__main__":
+    initialize_database()

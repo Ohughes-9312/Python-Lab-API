@@ -1,37 +1,80 @@
-from fastapi import FastAPI
+import logging
+from contextlib import closing
+from functools import wraps
+
+from fastapi import FastAPI, HTTPException, status
 import psycopg2
-from src.models import User
+
+from src.config import DB_SETTINGS
+from src.models import User, UserResponse, MessageResponse
+
+
+# -------------------------
+# APPLICATION CONFIGURATION
+# -------------------------
+
+logging.basicConfig(level=logging.INFO)
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-DB_SETTINGS = {
-    "host": "postgres",
-    "database": "devdb",
-    "user": "admin",
-    "password": "***REMOVED***",
-    "port": "5432"
-}
+
+# -------------------------
+# DATABASE CONNECTION HELPER
+# -------------------------
+
+def handle_database_errors(func):
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+
+        try:
+            return func(*args, **kwargs)
+
+        except psycopg2.Error:
+            logger.exception("Database operation failed")
+
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="A database error occurred"
+            )
+
+    return wrapper
+
+
+def get_db_connection():
+    return closing(
+        psycopg2.connect(**DB_SETTINGS)
+    )
+
+
+# -------------------------
+# API ENDPOINTS
+# -------------------------
 
 @app.get("/")
 def root():
     return {"message": "Python Lab API Running"}
 
-@app.get("/users")
+
+@app.get(
+    "/users",
+    response_model=list[UserResponse]
+)
+@handle_database_errors
 def get_users():
 
-    conn = psycopg2.connect(**DB_SETTINGS)
-    cur = conn.cursor()
+    with get_db_connection() as conn:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT id, name, email
+                    FROM users
+                    ORDER BY id
+                """)
 
-    cur.execute("""
-        SELECT id, name, email
-        FROM users
-        ORDER BY id
-    """)
-
-    rows = cur.fetchall()
-
-    cur.close()
-    conn.close()
+                rows = cur.fetchall()
 
     return [
         {
@@ -42,77 +85,80 @@ def get_users():
         for row in rows
     ]
 
-from src.models import User
 
-@app.post("/users")
+@app.post(
+    "/users",
+    status_code=status.HTTP_201_CREATED,
+    response_model=MessageResponse
+)
+@handle_database_errors
 def create_user(user: User):
 
-    conn = psycopg2.connect(**DB_SETTINGS)
-    cur = conn.cursor()
+    with get_db_connection() as conn:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO users (name, email)
+                    VALUES (%s, %s)
+                    """,
+                    (user.name, user.email)
+                )
 
-    cur.execute(
-        """
-        INSERT INTO users (name, email)
-        VALUES (%s, %s)
-        """,
-        (user.name, user.email)
-    )
-
-    conn.commit()
-
-    cur.close()
-    conn.close()
-
-    return {
-        "message": "User created successfully"
-    }
+    return {"message": "User created successfully"}
 
 
-@app.put("/users/{user_id}")
+@app.put(
+    "/users/{user_id}",
+    response_model=MessageResponse
+)
+@handle_database_errors
 def update_user(user_id: int, user: User):
 
-    conn = psycopg2.connect(**DB_SETTINGS)
-    cur = conn.cursor()
+    with get_db_connection() as conn:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE users
+                    SET name = %s,
+                        email = %s
+                    WHERE id = %s
+                    """,
+                    (user.name, user.email, user_id)
+                )
 
-    cur.execute(
-        """
-        UPDATE users
-        SET name = %s,
-            email = %s
-        WHERE id = %s
-        """,
-        (user.name, user.email, user_id)
-    )
+                if cur.rowcount == 0:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail=f"User with ID {user_id} not found"
+                    )
 
-    conn.commit()
-
-    cur.close()
-    conn.close()
-
-    return {
-        "message": "User updated"
-    }
+    return {"message": "User updated successfully"}
 
 
-@app.delete("/users/{user_id}")
+@app.delete(
+    "/users/{user_id}",
+    response_model=MessageResponse
+)
+@handle_database_errors
 def delete_user(user_id: int):
 
-    conn = psycopg2.connect(**DB_SETTINGS)
-    cur = conn.cursor()
+    with get_db_connection() as conn:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    DELETE FROM users
+                    WHERE id = %s
+                    """,
+                    (user_id,)
+                )
 
-    cur.execute(
-        """
-        DELETE FROM users
-        WHERE id = %s
-        """,
-        (user_id,)
-    )
+                if cur.rowcount == 0:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail=f"User with ID {user_id} not found"
+                    )
 
-    conn.commit()
-
-    cur.close()
-    conn.close()
-
-    return {
-        "message": "User deleted"
-    }
+    return {"message": "User deleted successfully"}

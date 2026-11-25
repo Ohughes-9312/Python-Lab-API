@@ -1,5 +1,16 @@
+# Python
 __pycache__/
 *.pyc
-.env
-.vscode/
 .pytest_cache/
+.venv/
+venv/
+
+# Environment variables
+.env
+
+# IDE settings
+.vscode/
+
+# Test and coverage artifacts
+.coverage
+htmlcov/
